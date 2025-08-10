@@ -1,0 +1,77 @@
+name: Spring Boot CI/CD Simple 
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up JDK 17 (used by Spring Boot 3.x)
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Step 3: Cache Maven dependencies to speed up builds
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # Step 4: Build and run tests
+      - name: Build with Maven
+        run: mvn -B clean package --file pom.xml
+
+      # Step 5: Upload JAR artifact for later use
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spring-petclinic-jar
+          path: target/*.jar
+
+  deploy:
+    name: Deploy to Server
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      # Step 1: Download the built JAR artifact
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: spring-petclinic-jar
+
+      # Step 2: Deploy to server (example via SCP to remote)
+      - name: Deploy to Remote Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "*.jar"
+          target: "~/spring-petclinic"
+
+      # Step 3: Restart application remotely (example with SSH)
+      - name: Restart Remote App
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            pkill -f 'spring-petclinic' || true
+            nohup java -jar ~/spring-petclinic/*.jar > app.log 2>&1 &
